@@ -4,7 +4,7 @@
   (:require criterium.well))
 
 (defmacro test-max-error [expected actual max-error]
-  `(is (< (Math/abs (- ~expected ~actual)) ~max-error)))
+  `(is (< (erlang/abs.e (- ~expected ~actual)) ~max-error)))
 
 (deftest mean-test
   (is (= 1 (mean (take 20 (repeatedly (constantly 1))))))
@@ -26,13 +26,13 @@
 (deftest median-test
   (is (= [5 [1 2] [7 8]]
          (median [1 2 5 7 8])))
-  (is (= [7/2 [1 2 2] [5 7 8]]
+  (is (= [3.5 [1 2 2] [5 7 8]]
          (median [1 2 2 5 7 8]))))
 
 (deftest quartiles-test
-  (is (= [3/2 5 15/2]
+  (is (= [1.5 5 7.5]
          (quartiles [1 2 5 7 8])))
-  (is (= [2 7/2 7]
+  (is (= [2 3.5 7]
          (quartiles [1 2 2 5 7 8]))))
 
 (deftest boxplot-outlier-thresholds-test
