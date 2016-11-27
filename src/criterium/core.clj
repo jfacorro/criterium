@@ -52,7 +52,7 @@ library that applies many of the same statistical techniques."
   (:use clojure.set
          criterium.stats)
   (:require criterium.well)
-  (:import (java.lang.management ManagementFactory)))
+  #_(:import (java.lang.management ManagementFactory)))
 
 (def ^{:dynamic true} *use-mxbean-for-times* nil)
 
@@ -127,7 +127,7 @@ library that applies many of the same statistical techniques."
     (apply println "WARNING:" message)))
 
 ;;; Java Management interface
-(defprotocol StateChanged
+#_(defprotocol StateChanged
   "Interrogation of differences in a state."
   (state-changed?
    [state]
@@ -136,7 +136,9 @@ library that applies many of the same statistical techniques."
    [state-1 state-2]
    "Return a state object for the difference between two states"))
 
-(defrecord JvmClassLoaderState [loaded-count unloaded-count]
+(defn state-delta [x y] {})
+
+#_(defrecord JvmClassLoaderState [loaded-count unloaded-count]
   StateChanged
   (state-changed?
    [state]
@@ -147,12 +149,13 @@ library that applies many of the same statistical techniques."
      (JvmClassLoaderState. (first vals) (second vals)))))
 
 (defn jvm-class-loader-state []
-  (let [bean (.. ManagementFactory getClassLoadingMXBean)]
+  {}
+  #_(let [bean (.. ManagementFactory getClassLoadingMXBean)]
     (JvmClassLoaderState. (. bean getLoadedClassCount)
                           (. bean getUnloadedClassCount))))
 
 
-(defrecord JvmCompilationState [compilation-time]
+#_(defrecord JvmCompilationState [compilation-time]
   StateChanged
   (state-changed?
    [state]
@@ -165,7 +168,8 @@ library that applies many of the same statistical techniques."
 (defn jvm-compilation-state
   "Returns the total compilation time for the JVM instance."
   []
-  (let [bean (.. ManagementFactory getCompilationMXBean)]
+  {}
+  #_(let [bean (.. ManagementFactory getCompilationMXBean)]
     (JvmCompilationState. (if (. bean isCompilationTimeMonitoringSupported)
                             (. bean getTotalCompilationTime)
                             -1))))
@@ -173,53 +177,52 @@ library that applies many of the same statistical techniques."
 (defn jvm-jit-name
   "Returns the name of the JIT compiler."
   []
-  (let [bean (.. ManagementFactory getCompilationMXBean)]
+  "JVM"
+  #_(let [bean (.. ManagementFactory getCompilationMXBean)]
     (. bean getName)))
 
 (defn os-details
   "Return the operating system details as a hash."
   []
-  (let [bean (.. ManagementFactory getOperatingSystemMXBean)]
-    {:arch (. bean getArch)
-     :available-processors (. bean getAvailableProcessors)
-     :name (. bean getName)
-     :version (. bean getVersion)}))
+  {}
+  {:arch (erlang/list_to_binary.e (erlang/system_info.e :system_architecture))
+   :available-processors (erlang/system_info.e :logical_processors_available)
+   :name (erlang/list_to_binary.e (erlang/system_info.e :machine))
+   :version (erlang/list_to_binary.e (erlang/system_info.e :version))})
 
 (defn runtime-details
   "Return the runtime details as a hash."
   []
-  (let [bean (.. ManagementFactory getRuntimeMXBean)
-        props (. bean getSystemProperties)]
-    {:input-arguments (. bean getInputArguments)
-     :name (. bean getName)
-     :spec-name (. bean getSpecName)
-     :spec-vendor (. bean getSpecVendor)
-     :spec-version (. bean getSpecVersion)
-     :vm-name (. bean getVmName)
-     :vm-vendor (. bean getVmVendor)
-     :vm-version (. bean getVmVersion)
-     :java-version (get props "java.version")
-     :java-runtime-version (get props "java.runtime.version")
-     :sun-arch-data-model (get props "sun.arch.data.model")
-     :clojure-version-string (clojure-version)
-     :clojure-version *clojure-version*}))
+  {:input-arguments (init/get_arguments.e)
+   :name (erlang/list_to_binary.e (erlang/system_info.e :machine))
+   :spec-name nil
+   :spec-vendor nil
+   :spec-version nil
+   :vm-name (erlang/list_to_binary.e (erlang/system_info.e :machine))
+   :vm-vendor nil
+   :vm-version (erlang/list_to_binary.e (erlang/system_info.e :version))
+   :java-version (os/getenv.e (erlang/binary_to_list.e "java.version"))
+   :java-runtime-version (os/getenv.e (erlang/binary_to_list.e "java.runtime.version"))
+   :sun-arch-data-model (os/getenv.e (erlang/binary_to_list.e "sun.arch.data.model"))
+   :clojure-version-string (clojure-version)
+   :clojure-version *clojure-version*})
 
-(defn system-properties
+#_(defn system-properties
   "Return the operating system details."
   []
   (let [bean (.. ManagementFactory getRuntimeMXBean)]
     (. bean getSystemProperties)))
 
 ;;; OS Specific Code
-(defn clear-cache-mac []
+#_(defn clear-cache-mac []
   (.. Runtime getRuntime (exec "/usr/bin/purge") waitFor))
 
-(defn clear-cache-linux []
+#_(defn clear-cache-linux []
   ;; not sure how to deal with the sudo
   (.. Runtime getRuntime
       (exec "sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'") waitFor))
 
-(defn clear-cache []
+#_(defn clear-cache []
   (condp #(re-find %1 %2) (.. System getProperties (getProperty "os.name"))
     #"Mac" (clear-cache-mac)
     :else (warn "don't know how to clear disk buffer cache for "
@@ -228,14 +231,12 @@ library that applies many of the same statistical techniques."
 ;;; Time reporting
 (defmacro timestamp
   "Obtain a timestamp"
-  [] `(System/nanoTime))
+  [] `(erlang/monotonic_time.e :nano_seconds))
 
 (defn timestamp-2
   "Obtain a timestamp, possibly using MXBean."
   []
-  (if *use-mxbean-for-times*
-    (.. ManagementFactory getThreadMXBean getCurrentThreadCpuTime)
-    (System/nanoTime)))
+  (erlang/monotonic_time.e :nano_seconds))
 
 ;;; Execution timing
 (defmacro time-body
@@ -275,13 +276,15 @@ class counts, change in compilation time and result of specified function."
 (defn heap-used
   "Report a (inconsistent) snapshot of the heap memory used."
   []
-  (let [runtime (Runtime/getRuntime)]
+  0
+  #_(let [runtime (Runtime/getRuntime)]
     (- (.totalMemory runtime) (.freeMemory runtime))))
 
 (defn memory
   "Report a (inconsistent) snapshot of the memory situation."
   []
-  (let [runtime (Runtime/getRuntime)]
+  0
+  #_(let [runtime (Runtime/getRuntime)]
     [ (.freeMemory runtime) (.totalMemory runtime) (.maxMemory runtime)]))
 
 ;;; Memory management
@@ -289,20 +292,20 @@ class counts, change in compilation time and result of specified function."
   "Force garbage collection and finalisers so that execution time associated
    with this is not incurred later. Up to max-attempts are made.
 "
-  ([] (force-gc *max-gc-attempts*))
+  ([] #_(force-gc *max-gc-attempts*))
   ([max-attempts]
-     (debug "Cleaning JVM allocations ...")
-     (loop [memory-used (heap-used)
-            attempts 0]
-       (System/runFinalization)
-       (System/gc)
-       (let [new-memory-used (heap-used)]
-         (if (and (or (pos? (.. ManagementFactory
-                                getMemoryMXBean
-                                getObjectPendingFinalizationCount))
-                      (> memory-used new-memory-used))
-                  (< attempts max-attempts))
-           (recur new-memory-used (inc attempts)))))))
+   #_(debug "Cleaning JVM allocations ...")
+   #_(loop [memory-used (heap-used)
+          attempts 0]
+     (System/runFinalization)
+     (System/gc)
+     (let [new-memory-used (heap-used)]
+       (if (and (or (pos? (.. ManagementFactory
+                              getMemoryMXBean
+                              getObjectPendingFinalizationCount))
+                    (> memory-used new-memory-used))
+                (< attempts max-attempts))
+         (recur new-memory-used (inc attempts)))))))
 
 (defn final-gc
   "Time a final clean up of JVM memory. If this time is significant compared to
@@ -314,6 +317,7 @@ class counts, change in compilation time and result of specified function."
 (defn final-gc-warn
   [execution-time final-gc-time]
   (progress "Checking GC...")
+  (progress "Execution time" execution-time)
   (let [fractional-time (/ final-gc-time execution-time)
         final-gc-result [(> fractional-time *final-gc-problem-threshold*)
                          fractional-time
@@ -330,17 +334,17 @@ class counts, change in compilation time and result of specified function."
 ;;; A mutable field is used to store the result of each function call, to
 ;;; prevent JIT optimising away the expression entirely.
 
-(defprotocol MutablePlace
+#_(defprotocol MutablePlace
   "Provides a mutable place"
   (set-place [_ v] "Set mutable field to value.")
   (get-place [_] "Get mutable field value."))
 
-(deftype Unsynchronized [^{:unsynchronized-mutable true :tag Object} v]
+#_(deftype Unsynchronized [^{:unsynchronized-mutable true :tag Object} v]
   MutablePlace
   (set-place [_ value] (set! v value))
   (get-place [_] v))
 
-(def mutable-place (Unsynchronized. nil))
+#_(def mutable-place (Unsynchronized. nil))
 
 (defn execute-expr-core-timed-part
  "Performs the part of execute-expr where we actually measure the elapsed run
@@ -365,10 +369,11 @@ class counts, change in compilation time and result of specified function."
   (time-body
    (loop [i (long (dec n))
           v (f)]
-     (set-place mutable-place v)
+     #_(set-place mutable-place v)
      (if (pos? i)
-       (recur (unchecked-dec i) (f))
+       (recur (dec i) (f))
        v))))
+
 
 ;;; ## Execution
 (defn execute-expr
@@ -376,20 +381,20 @@ class counts, change in compilation time and result of specified function."
   `execute-expr-core-timed-part`."
   [n f]
   (let [time-and-ret (execute-expr-core-timed-part n f)]
-    (get-place mutable-place) ;; just for good measure, use the mutable value
+    #_(get-place mutable-place) ;; just for good measure, use the mutable value
     time-and-ret))
 
 (defn collect-samples
   [sample-count execution-count f gc-before-sample]
   {:pre [(pos? sample-count)]}
-  (let [result (object-array sample-count)]
-    (loop [i (long 0)]
+  (let [result [] #_(object-array sample-count)]
+    (loop [i (long 0)
+           result result]
       (if (< i sample-count)
         (do
           (when gc-before-sample
             (force-gc))
-          (aset result i (execute-expr execution-count f))
-          (recur (unchecked-inc i)))
+          (recur (inc i) (conj result (execute-expr execution-count f))))
         result))))
 
 ;;; Compilation
@@ -429,7 +434,7 @@ class counts, change in compilation time and result of specified function."
                  (+ count c)
                  (if (and (= old-cl-state new-cl-state)
                           (= old-comp-state new-comp-state))
-                   (unchecked-inc delta-free)
+                   (inc delta-free)
                    (long 0))
                  new-cl-state
                  new-comp-state))))))
@@ -513,35 +518,30 @@ similar to run-benchmark, except it takes multiple expressions in a
 sequence instead of only one (each element of the sequence should be a
 map with keys :f and :expr-string).  It runs the following steps in
 sequence:
-
 1. Execute each expr once
-
 2. Run expression 1 for at least warmup-jit-period nanoseconds so the
    JIT has an opportunity to optimize it.  Then do the same for each
    of the other expressions.
-
 3. Run expression 1 many times to estimate how many times it must be
    executed to take a total of target-execution-time nanoseconds.  The
    result is a number of iterations n-exec1 for expression 1.  Do the
    same for each of the other expressions, each with the same
    target-execution-time, each resulting in its own independent number
    of executions.
-
 4. Run expression 1 n-exec1 times, measuring the total elapsed time.
    Do the same for the rest of the expressions.
-
 5. Repeat step 4 a total of sample-count times."
   [sample-count warmup-jit-period target-execution-time exprs gc-before-sample]
   (force-gc)
   (let [first-executions (map (fn [{:keys [f]}] (time-body (f))) exprs)]
-    (progress (format "Warming up %d expression for %.2e sec each:"
+    (progress (format "Warming up ~p expression for ~p sec each:"
                       (count exprs) (/ warmup-jit-period 1.0e9)))
     (doseq [{:keys [f expr-string]} exprs]
-      (progress (format "    %s..." expr-string))
+      (progress (format "    ~s..." expr-string))
       (warmup-for-jit warmup-jit-period f))
     (progress
      (format
-      "Estimating execution counts for %d expressions.  Target execution time = %.2e sec:"
+      "Estimating execution counts for ~p expressions.  Target execution time = ~p sec:"
                       (count exprs) (/ target-execution-time 1.0e9)))
     (let [exprs (map-indexed
                  (fn [idx {:keys [f expr-string] :as expr}]
@@ -560,12 +560,12 @@ sequence:
                          (do
                            (progress
                             (format
-                             "    Running sample %d/%d for %d expressions:"
+                             "    Running sample ~p/~p for ~p expressions:"
                              (inc i) sample-count (count exprs)))
                            (doall
                             (for [{:keys [f n-exec expr-string] :as expr} exprs]
                               (do
-                                (progress (format "        %s..." expr-string))
+                                (progress (format "        ~s..." expr-string))
                                 (assoc expr
                                   :sample (first
                                            (collect-samples
@@ -615,8 +615,7 @@ sequence:
    http://en.wikipedia.org/wiki/Bootstrapping_(statistics)"
   [data statistic size rng-factory]
   (progress "Bootstrapping ...")
-  (let [samples (bootstrap-sample data statistic size rng-factory)
-        transpose (fn [data] (apply map vector data))]
+  (let [samples (bootstrap-sample data statistic size rng-factory)]
     (if (vector? (first samples))
       (map bootstrap-estimate samples)
       (bootstrap-estimate samples))))
@@ -647,17 +646,17 @@ See http://www.ellipticgroup.com/misc/article_supplement.pdf, p17."
   (progress "Checking outlier significance")
   (let [mean-block (point-estimate mean-estimate)
         variance-block (point-estimate variance-estimate)
-        std-dev-block (Math/sqrt variance-block)
+        std-dev-block (math/sqrt.e variance-block)
         mean-action (/ mean-block n)
         mean-g-min (/ mean-action 2)
-        sigma-g (min (/ mean-g-min 4) (/ std-dev-block (Math/sqrt n)))
+        sigma-g (min (/ mean-g-min 4) (/ std-dev-block (math/sqrt.e n)))
         variance-g (* sigma-g sigma-g)
         c-max (fn [t-min]
                 (let [j0 (- mean-action t-min)
                       k0 (- (* n n j0 j0))
                       k1 (+ variance-block (- (* n variance-g)) (* n j0 j0))
                       det (- (* k1 k1) (* 4 variance-g k0))]
-                  (Math/floor (/ (* -2 k0) (+ k1 (Math/sqrt det))))))
+                  (clj_utils/floor.e (/ (* -2 k0) (+ k1 (math/sqrt.e det))))))
         var-out (fn [c]
                   (let [nmc (- n c)]
                     (* (/ nmc n) (- variance-block (* nmc variance-g)))))
@@ -667,12 +666,14 @@ See http://www.ellipticgroup.com/misc/article_supplement.pdf, p17."
     (/ (min-f var-out 1 (min-f c-max 0 mean-g-min)) variance-block)))
 
 
-(defrecord OutlierCount [low-severe low-mild high-mild high-severe])
+#_(defrecord OutlierCount [low-severe low-mild high-mild high-severe])
 
 (defn outlier-count
   [low-severe low-mild high-mild high-severe]
-  (OutlierCount. low-severe low-mild high-mild high-severe))
-
+  {:low-severe low-severe
+   :low-mild low-mild
+   :high-mild high-mild
+   :high-severe high-severe})
 
 (defn add-outlier [low-severe low-mild high-mild high-severe counts x]
   (outlier-count
@@ -721,8 +722,7 @@ See http://www.ellipticgroup.com/misc/article_supplement.pdf, p17."
   "Sets the estimated overhead."
   []
   (progress "Estimating sampling overhead")
-  (alter-var-root
-   #'estimated-overhead-cache (constantly (estimate-overhead))))
+  (set! estimated-overhead-cache (estimate-overhead)))
 
 (defn estimated-overhead
   []
@@ -771,7 +771,7 @@ See http://www.ellipticgroup.com/misc/article_supplement.pdf, p17."
                                        (:sample-count times))
         sqr (fn [x] (* x x))
         m (mean (map double (:samples times)))
-        s (Math/sqrt (variance (map double (:samples times))))]
+        s (math/sqrt.e (variance (map double (:samples times))))]
     (merge times
            {:outliers outliers
             :mean (scale-bootstrap-estimate
@@ -801,7 +801,7 @@ See http://www.ellipticgroup.com/misc/article_supplement.pdf, p17."
   []
   (let [compiler (jvm-jit-name)
         {:keys [input-arguments]} (runtime-details)]
-    (when-let [arg (and (re-find #"Tiered" compiler)
+    #_(when-let [arg (and (re-find #"Tiered" compiler)
                         (some #(re-find #"TieredStopAtLevel=(.*)" %)
                               input-arguments))]
       (warn
@@ -882,14 +882,14 @@ See http://www.ellipticgroup.com/misc/article_supplement.pdf, p17."
    :else [1 "sec"]))
 
 (defn format-value [value scale unit]
-  (format "%f %s" (* scale value) unit))
+  (format "~p ~s" (* scale value) unit))
 
 (defn report-estimate
   [msg estimate significance]
   (let [mean (first estimate)
         [factor unit] (scale-time mean)]
     (apply
-     report "%32s : %s  %2.1f%% CI: (%s, %s)\n"
+     report "~s : ~s  ~p CI: (~s, ~s)\n"
      msg
      (format-value mean factor unit)
      (* significance 100)
@@ -899,30 +899,30 @@ See http://www.ellipticgroup.com/misc/article_supplement.pdf, p17."
   ([msg estimate]
      (let [mean (first estimate)
            [factor unit] (scale-time mean)]
-       (report "%32s : %s\n" msg (format-value mean factor unit))))
+       (report "~s : ~s\n" msg (format-value mean factor unit))))
   ([msg estimate quantile]
      (let [mean (first estimate)
            [factor unit] (scale-time mean)]
        (report
-        "%32s : %s (%4.1f%%)\n"
+        "~s : ~s (~p)\n"
         msg (format-value mean factor unit) (* quantile 100)))))
 
 (defn report-estimate-sqrt
   [msg estimate significance]
-  (let [mean (Math/sqrt (first estimate))
+  (let [mean (math/sqrt.e (first estimate))
         [factor unit] (scale-time mean)]
     (apply
-     report "%32s : %s  %2.1f%% CI: (%s, %s)\n"
+     report "~s : ~s  ~p CI: (~s, ~s)\n"
      msg
      (format-value mean factor unit)
      (* significance 100)
-     (map #(format-value (Math/sqrt %) factor unit) (last estimate)))))
+     (map #(format-value (math/sqrt.e %) factor unit) (last estimate)))))
 
 (defn report-point-estimate-sqrt
   [msg estimate]
-  (let [mean (Math/sqrt (first estimate))
+  (let [mean (math/sqrt.e (first estimate))
         [factor unit] (scale-time mean)]
-    (report "%32s : %s\n" msg (format-value mean factor unit))))
+    (report "~s : ~s\n" msg (format-value mean factor unit))))
 
 (defn report-outliers [results]
   (let [outliers (:outliers results)
@@ -936,13 +936,13 @@ See http://www.ellipticgroup.com/misc/article_supplement.pdf, p17."
     (when (some pos? values)
       (let [sum (reduce + values)]
         (report
-         "\nFound %d outliers in %d samples (%2.4f %%)\n"
+         "\nFound ~p outliers in ~p samples (~p)\n"
          sum sample-count (* 100.0 (/ sum sample-count))))
       (doseq [[v c] (partition 2 (interleave (filter pos? values) types))]
-        (report "\t%s\t %d (%2.4f %%)\n" c v (* 100.0 (/ v sample-count))))
-      (report " Variance from outliers : %2.4f %%"
+        (report "\t~s\t ~p (~p)\n" c v (* 100.0 (/ v sample-count))))
+      (report " Variance from outliers : ~p"
               (* (:outlier-variance results) 100.0))
-      (report " Variance is %s by outliers\n"
+      (report " Variance is ~s by outliers\n"
               (-> (:outlier-variance results) outlier-effect labels)))))
 
 (defn report-result [results & opts]
